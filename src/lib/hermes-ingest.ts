@@ -80,8 +80,22 @@ export type HermesBulkResult = {
 
 const STORE_DIR = process.env.HERMES_INGEST_STORE_DIR || path.join(os.tmpdir(), "hermes-backlink-dashboard");
 const STORE_FILE = process.env.HERMES_INGEST_STORE_PATH || path.join(STORE_DIR, "hermes-backlinks.json");
-const KV_REST_API_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || "";
-const KV_REST_API_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || "";
+const KV_REST_API_URL =
+  process.env.KV_REST_API_URL ||
+  process.env.UPSTASH_REDIS_REST_URL ||
+  process.env.STORAGE_KV_REST_API_URL ||
+  process.env.STORAGE_UPSTASH_REDIS_REST_URL ||
+  process.env.STORAGE_REDIS_REST_URL ||
+  process.env.STORAGE_REST_API_URL ||
+  "";
+const KV_REST_API_TOKEN =
+  process.env.KV_REST_API_TOKEN ||
+  process.env.UPSTASH_REDIS_REST_TOKEN ||
+  process.env.STORAGE_KV_REST_API_TOKEN ||
+  process.env.STORAGE_UPSTASH_REDIS_REST_TOKEN ||
+  process.env.STORAGE_REDIS_REST_TOKEN ||
+  process.env.STORAGE_REST_API_TOKEN ||
+  "";
 const KV_STORE_KEY = process.env.HERMES_INGEST_KV_KEY || "hermes:backlink-dashboard:backlinks";
 const IS_PRODUCTION_RUNTIME = process.env.NODE_ENV === "production" || process.env.VERCEL === "1";
 
