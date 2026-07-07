@@ -54,6 +54,9 @@ export type HermesBulkResult = {
 
 const STORE_DIR = process.env.HERMES_INGEST_STORE_DIR || path.join(os.tmpdir(), "hermes-backlink-dashboard");
 const STORE_FILE = process.env.HERMES_INGEST_STORE_PATH || path.join(STORE_DIR, "hermes-backlinks.json");
+const KV_REST_API_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || "";
+const KV_REST_API_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || "";
+const KV_STORE_KEY = process.env.HERMES_INGEST_KV_KEY || "hermes:backlink-dashboard:backlinks";
 
 const KNOWN_EXECUTION_STATUSES = new Set([
   "待填写",
@@ -105,9 +108,7 @@ function normalizeReviewStatus(record: HermesBacklinkRecordInput) {
 }
 
 function dedupeKeyFor(record: HermesBacklinkRecordInput) {
-  const externalId = trimOrEmpty(record.externalId);
-  if (externalId) return `externalId:${externalId}`;
-  return `fallback:${trimOrEmpty(record.project)}|${trimOrEmpty(record.sourcePageUrl)}|${trimOrEmpty(record.publishedAt)}`;
+  return `externalId:${trimOrEmpty(record.externalId)}`;
 }
 
 function normalizeRecord(record: HermesBacklinkRecordInput, source: string, existing?: StoredHermesBacklinkRecord): StoredHermesBacklinkRecord {
@@ -172,6 +173,9 @@ function isSameRecord(a: StoredHermesBacklinkRecord, b: StoredHermesBacklinkReco
 }
 
 async function loadStore(): Promise<HermesStoreFile> {
+  const kvStore = await loadStoreFromKv();
+  if (kvStore) return kvStore;
+
   try {
     const raw = await fs.readFile(STORE_FILE, "utf8");
     const parsed = JSON.parse(raw) as Partial<HermesStoreFile>;
@@ -185,10 +189,59 @@ async function loadStore(): Promise<HermesStoreFile> {
 }
 
 async function saveStore(store: HermesStoreFile) {
+  if (await saveStoreToKv(store)) return;
+
   await fs.mkdir(path.dirname(STORE_FILE), { recursive: true });
   const tmpPath = `${STORE_FILE}.tmp-${randomUUID()}`;
   await fs.writeFile(tmpPath, JSON.stringify(store, null, 2), "utf8");
   await fs.rename(tmpPath, STORE_FILE);
+}
+
+async function kvCommand<T>(command: unknown[]): Promise<T | null> {
+  if (!KV_REST_API_URL || !KV_REST_API_TOKEN) return null;
+
+  const response = await fetch(KV_REST_API_URL, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${KV_REST_API_TOKEN}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(command),
+  });
+
+  if (!response.ok) {
+    throw new Error(`KV command failed: ${response.status}`);
+  }
+
+  const payload = (await response.json()) as { result?: T | null };
+  return payload.result ?? null;
+}
+
+async function loadStoreFromKv(): Promise<HermesStoreFile | null> {
+  if (!KV_REST_API_URL || !KV_REST_API_TOKEN) return null;
+
+  try {
+    const raw = await kvCommand<string | HermesStoreFile>(["GET", KV_STORE_KEY]);
+    if (!raw) return { version: 1, records: [] };
+    const parsed = typeof raw === "string" ? (JSON.parse(raw) as Partial<HermesStoreFile>) : raw;
+    if (!parsed || !Array.isArray(parsed.records)) return { version: 1, records: [] };
+    return { version: parsed.version ?? 1, records: parsed.records as StoredHermesBacklinkRecord[] };
+  } catch (error) {
+    console.error("Failed to load Hermes backlink store from KV, falling back to file store", error);
+    return null;
+  }
+}
+
+async function saveStoreToKv(store: HermesStoreFile): Promise<boolean> {
+  if (!KV_REST_API_URL || !KV_REST_API_TOKEN) return false;
+
+  try {
+    await kvCommand(["SET", KV_STORE_KEY, JSON.stringify(store)]);
+    return true;
+  } catch (error) {
+    console.error("Failed to save Hermes backlink store to KV, falling back to file store", error);
+    return false;
+  }
 }
 
 export async function ingestHermesBacklinks(payload: HermesBulkPayload): Promise<HermesBulkResult> {
@@ -202,6 +255,11 @@ export async function ingestHermesBacklinks(payload: HermesBulkPayload): Promise
   let skipped = 0;
 
   for (const incoming of records) {
+    if (!trimOrEmpty(incoming.externalId)) {
+      skipped += 1;
+      continue;
+    }
+
     const dedupeKey = dedupeKeyFor(incoming);
     const existing = indexByKey.get(dedupeKey);
     const next = normalizeRecord(incoming, source, existing);
