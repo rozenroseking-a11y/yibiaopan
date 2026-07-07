@@ -21,11 +21,15 @@ export function ProjectTable({
   const statsByProject = useMemo(() => {
     return projects.map((project) => {
       const list = backlinks.filter((item) => item.projectId === project.id);
+      const latest = [...list].sort((a, b) => +new Date(b.recordedAt) - +new Date(a.recordedAt))[0];
       return {
         id: project.id,
-        count: list.length,
-        passed: list.filter((item) => item.reviewStatus === "通过").length,
-        failed: list.filter((item) => item.reviewStatus === "拒绝" || item.executionStatus === "失败").length,
+        count: project.totalBacklinks ?? list.length,
+        submitted: project.submittedCount ?? list.filter((item) => ["已提交", "已提交待确认", "待审核"].includes(item.executionStatus)).length,
+        passed: project.approvedCount ?? list.filter((item) => item.reviewStatus === "通过").length,
+        reviewing: project.reviewingCount ?? list.filter((item) => item.reviewStatus === "审核中" || item.executionStatus === "待审核" || item.executionStatus === "已提交待确认").length,
+        failed: project.failedCount ?? list.filter((item) => item.reviewStatus === "拒绝" || item.executionStatus === "失败").length,
+        lastRecordedAt: project.lastRecordedAt ?? latest?.recordedAt ?? "",
       };
     });
   }, [projects, backlinks]);
@@ -61,10 +65,13 @@ export function ProjectTable({
             <div key={stat.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
               <div className="text-sm text-slate-300">{projects.find((p) => p.id === stat.id)?.name}</div>
               <div className="mt-2 text-2xl font-semibold text-white">{stat.count}</div>
-              <div className="mt-2 flex gap-2 text-xs text-slate-400">
+              <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
+                <Pill tone="cyan">已提交 {stat.submitted}</Pill>
                 <Pill tone="emerald">通过 {stat.passed}</Pill>
+                <Pill tone="amber">审核中 {stat.reviewing}</Pill>
                 <Pill tone="rose">失败 {stat.failed}</Pill>
               </div>
+              <div className="mt-2 text-xs text-slate-500">最近：{stat.lastRecordedAt ? new Date(stat.lastRecordedAt).toLocaleString("zh-CN") : "暂无"}</div>
             </div>
           ))}
         </div>
@@ -90,9 +97,12 @@ export function ProjectTable({
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 <Pill tone="cyan">总记录 {stat.count}</Pill>
+                <Pill tone="cyan">已提交 {stat.submitted}</Pill>
                 <Pill tone="emerald">通过 {stat.passed}</Pill>
+                <Pill tone="amber">审核中 {stat.reviewing}</Pill>
                 <Pill tone="rose">失败 {stat.failed}</Pill>
               </div>
+              <div className="mt-2 text-xs text-slate-500">最近提交：{stat.lastRecordedAt ? new Date(stat.lastRecordedAt).toLocaleString("zh-CN") : "暂无"}</div>
               <div className="mt-4 flex gap-2">
                 <Button variant="secondary" onClick={() => setEditing(project)}>编辑</Button>
                 <Button variant="danger" onClick={() => onDelete(project.id)}>删除</Button>

@@ -32,13 +32,39 @@ export type HermesBulkPayload = {
   records?: HermesBacklinkRecordInput[];
 };
 
-type StoredHermesBacklinkRecord = HermesBacklinkRecordInput & {
+export type StoredHermesBacklinkRecord = HermesBacklinkRecordInput & {
   id: string;
   source: string;
   dedupeKey: string;
   recommendedMethod: string;
+  executionStatus: string;
+  reviewStatus: string;
+  indexedUrl: string;
+  notes: string;
+  rawStatus: string;
+  confidence: string;
+  evidence: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type HermesProjectSummary = {
+  id: string;
+  name: string;
+  websiteUrl: string;
+  projectType: string;
+  defaultSubmitName: string;
+  defaultSubmitEmail: string;
+  notes: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  totalBacklinks: number;
+  submittedCount: number;
+  approvedCount: number;
+  reviewingCount: number;
+  failedCount: number;
+  lastRecordedAt: string;
 };
 
 type HermesStoreFile = {
@@ -290,5 +316,67 @@ export async function ingestHermesBacklinks(payload: HermesBulkPayload): Promise
 }
 
 export async function loadHermesBacklinkStore() {
-  return loadStore();
+  const store = await loadStore();
+  return { ...store, records: getVisibleHermesRecords(store.records) };
+}
+
+export async function loadHermesProjects(): Promise<HermesProjectSummary[]> {
+  const store = await loadHermesBacklinkStore();
+  const projects = new Map<string, HermesProjectSummary>();
+
+  for (const record of store.records) {
+    const projectId = trimOrEmpty(record.project);
+    if (!projectId) continue;
+
+    const recordedAt = trimOrEmpty(record.recordedAt) || trimOrEmpty(record.updatedAt) || trimOrEmpty(record.createdAt);
+    const existing = projects.get(projectId);
+    const project: HermesProjectSummary = existing ?? {
+      id: projectId,
+      name: trimOrEmpty(record.projectName) || projectId,
+      websiteUrl: trimOrEmpty(record.promotionWebsite),
+      projectType: "Hermes 自动同步",
+      defaultSubmitName: trimOrEmpty(record.submitName),
+      defaultSubmitEmail: trimOrEmpty(record.submitEmail),
+      notes: "从 Hermes backlink 记录自动聚合",
+      isActive: true,
+      createdAt: trimOrEmpty(record.createdAt) || recordedAt || new Date().toISOString(),
+      updatedAt: trimOrEmpty(record.updatedAt) || recordedAt || new Date().toISOString(),
+      totalBacklinks: 0,
+      submittedCount: 0,
+      approvedCount: 0,
+      reviewingCount: 0,
+      failedCount: 0,
+      lastRecordedAt: "",
+    };
+
+    project.name = project.name || trimOrEmpty(record.projectName) || projectId;
+    project.websiteUrl = project.websiteUrl || trimOrEmpty(record.promotionWebsite);
+    project.defaultSubmitName = project.defaultSubmitName || trimOrEmpty(record.submitName);
+    project.defaultSubmitEmail = project.defaultSubmitEmail || trimOrEmpty(record.submitEmail);
+    project.totalBacklinks += 1;
+    if (["已提交", "已提交待确认", "待审核"].includes(record.executionStatus)) project.submittedCount += 1;
+    if (record.reviewStatus === "通过") project.approvedCount += 1;
+    if (record.reviewStatus === "审核中" || record.executionStatus === "待审核" || record.executionStatus === "已提交待确认") project.reviewingCount += 1;
+    if (record.executionStatus === "失败" || record.reviewStatus === "拒绝") project.failedCount += 1;
+    if (recordedAt && (!project.lastRecordedAt || +new Date(recordedAt) > +new Date(project.lastRecordedAt))) {
+      project.lastRecordedAt = recordedAt;
+    }
+    if (recordedAt && +new Date(recordedAt) > +new Date(project.updatedAt || 0)) {
+      project.updatedAt = recordedAt;
+    }
+
+    projects.set(projectId, project);
+  }
+
+  return [...projects.values()].sort((a, b) => b.totalBacklinks - a.totalBacklinks || a.name.localeCompare(b.name));
+}
+
+function getVisibleHermesRecords(records: StoredHermesBacklinkRecord[]) {
+  return records.filter((record) => !isInternalTestRecord(record));
+}
+
+function isInternalTestRecord(record: StoredHermesBacklinkRecord) {
+  const externalId = trimOrEmpty(record.externalId).toLowerCase();
+  const notes = trimOrEmpty(record.notes);
+  return externalId.startsWith("health-test-") || notes === "接口联调测试记录";
 }

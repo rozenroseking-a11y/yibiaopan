@@ -9,6 +9,12 @@ export type Project = {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  totalBacklinks?: number;
+  submittedCount?: number;
+  approvedCount?: number;
+  reviewingCount?: number;
+  failedCount?: number;
+  lastRecordedAt?: string;
 };
 
 export type PlatformType =
