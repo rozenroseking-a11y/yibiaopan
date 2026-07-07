@@ -83,6 +83,16 @@ const STORE_FILE = process.env.HERMES_INGEST_STORE_PATH || path.join(STORE_DIR, 
 const KV_REST_API_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || "";
 const KV_REST_API_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || "";
 const KV_STORE_KEY = process.env.HERMES_INGEST_KV_KEY || "hermes:backlink-dashboard:backlinks";
+const IS_PRODUCTION_RUNTIME = process.env.NODE_ENV === "production" || process.env.VERCEL === "1";
+
+export function getHermesStorageStatus() {
+  const persistent = Boolean(KV_REST_API_URL && KV_REST_API_TOKEN);
+  return {
+    backend: persistent ? "upstash-redis" : "temporary-file",
+    persistent,
+    key: KV_STORE_KEY,
+  };
+}
 
 const KNOWN_EXECUTION_STATUSES = new Set([
   "待填写",
@@ -216,6 +226,10 @@ async function loadStore(): Promise<HermesStoreFile> {
 
 async function saveStore(store: HermesStoreFile) {
   if (await saveStoreToKv(store)) return;
+
+  if (IS_PRODUCTION_RUNTIME) {
+    throw new Error("persistent_storage_not_configured: set KV_REST_API_URL and KV_REST_API_TOKEN, or UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN");
+  }
 
   await fs.mkdir(path.dirname(STORE_FILE), { recursive: true });
   const tmpPath = `${STORE_FILE}.tmp-${randomUUID()}`;

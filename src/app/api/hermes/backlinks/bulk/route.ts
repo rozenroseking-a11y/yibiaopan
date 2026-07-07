@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ingestHermesBacklinks } from "@/lib/hermes-ingest";
+import { ingestHermesBacklinks, getHermesStorageStatus } from "@/lib/hermes-ingest";
 import type { HermesBulkPayload } from "@/lib/hermes-ingest";
 
 export const runtime = "nodejs";
@@ -27,6 +27,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "records_must_be_array" }, { status: 400 });
   }
 
-  const result = await ingestHermesBacklinks(body);
-  return NextResponse.json({ ok: true, ...result });
+  try {
+    const result = await ingestHermesBacklinks(body);
+    return NextResponse.json({ ok: true, ...result, storage: getHermesStorageStatus() });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "ingest_failed";
+    const storage = getHermesStorageStatus();
+    const status = message.includes("persistent_storage_not_configured") ? 503 : 500;
+    return NextResponse.json({ ok: false, error: message, storage }, { status });
+  }
 }

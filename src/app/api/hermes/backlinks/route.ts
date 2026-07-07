@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { loadHermesBacklinkStore } from "@/lib/hermes-ingest";
+import { getHermesStorageStatus, loadHermesBacklinkStore } from "@/lib/hermes-ingest";
 
 export const runtime = "nodejs";
 
@@ -11,5 +11,6 @@ export async function GET() {
     ok: true,
     records,
     total: records.length,
+    storage: getHermesStorageStatus(),
   });
 }
